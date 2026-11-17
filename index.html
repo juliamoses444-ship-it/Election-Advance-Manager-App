@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#174a73">
+<meta name="description" content="Offline election advance and expenditure register">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Election Advance Manager</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#18232d;background:#f3f6f8}
+*{box-sizing:border-box}body{margin:0;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{background:#174a73;color:white;padding:18px 16px 20px}
+h1{font-size:21px;margin:0 0 4px}header p{margin:0;font-size:13px;opacity:.85}
+main{max-width:680px;margin:auto;padding:14px}
+.balance{background:white;border-radius:16px;padding:17px;box-shadow:0 2px 10px #18364a12;margin-bottom:13px}
+.kicker{font-size:12px;color:#667784;font-weight:650;letter-spacing:.04em}
+.amount{font-size:32px;font-weight:800;color:#146b45;margin:4px 0 12px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:#f1f5f8;border-radius:10px;padding:10px}.stat b{display:block;font-size:17px;margin-top:3px}
+button{border:0;border-radius:11px;padding:13px 15px;font-weight:700;font-size:15px;cursor:pointer}
+.primary{background:#174a73;color:white;width:100%;margin-bottom:12px}
+.secondary{background:#e5edf3;color:#174a73}
+.danger{background:#fff0ed;color:#a12b1c}
+.section{font-size:17px;margin:18px 2px 9px}
+.card{background:white;border-radius:13px;padding:13px;margin:9px 0;box-shadow:0 1px 6px #18364a0d}
+.tx-top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.tx-title{font-weight:750}.tx-sub{font-size:12px;color:#667784;margin-top:4px}
+.tx-amount{font-weight:800;white-space:nowrap}.tag{display:inline-block;border-radius:20px;padding:3px 8px;font-size:11px;background:#edf2f6;color:#415466;margin-top:7px}
+form{background:white;border-radius:14px;padding:14px;margin-bottom:14px}
+label{display:block;font-size:13px;font-weight:650;margin:11px 0 5px}
+input,select,textarea{width:100%;padding:12px;border:1px solid #cbd5dd;border-radius:9px;font:inherit;background:white;min-height:44px}
+textarea{min-height:65px;resize:vertical}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.actions{display:flex;gap:8px;margin-top:12px}.actions button{flex:1}
+.small{font-size:12px;color:#637482;line-height:1.45}
+.hidden{display:none!important}
+.empty{text-align:center;color:#70808c;padding:24px 8px;background:white;border-radius:12px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.toolbar button{font-size:13px;padding:10px}
+footer{text-align:center;font-size:11px;color:#7a8993;padding:20px}
+hr{border:0;border-top:1px solid #e6ebef;margin:12px 0}
+</style>
+</head>
+<body>
+<header><h1>Election Advance Manager</h1><p>Election expenditure & balance register</p></header>
+<main>
+<section class="balance">
+ <div class="kicker">AVAILABLE BALANCE</div>
+ <div class="amount" id="balance">₹3,00,000</div>
+ <div class="stats">
+  <div class="stat"><span class="kicker">Advance received</span><b id="openingView">₹3,00,000</b></div>
+  <div class="stat"><span class="kicker">Total spent</span><b id="spent">₹0</b></div>
+ </div>
+</section>
+<button class="primary" id="addBtn">＋ Add payment / refund</button>
+<form id="entryForm" class="hidden">
+ <h2 id="formTitle" style="font-size:18px;margin:0">New entry</h2>
+ <input type="hidden" id="editId">
+ <label>Date *</label><input id="date" type="date" required>
+ <label>Paid to / Details *</label><input id="person" maxlength="100" placeholder="Name and purpose" required>
+ <div class="grid">
+  <div><label>Entry type *</label><select id="type"><option value="payment">Payment</option><option value="refund">Money returned</option></select></div>
+  <div><label>Payment mode</label><select id="mode"><option>Cash</option><option>UPI</option><option>Bank</option><option>Cheque</option><option>Other</option></select></div>
+ </div>
+ <label id="amountLabel">Amount paid (₹) *</label><input id="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="Enter amount">
+ <div id="billFields">
+  <div class="grid">
+   <div><label>Physical bill</label><select id="bill"><option>Received</option><option>Pending</option><option>No Bill</option></select></div>
+   <div><label>Bill number</label><input id="billNo" placeholder="If available"></div>
+  </div>
+ </div>
+ <label>Transaction ID / proof / remarks</label><textarea id="remarks" placeholder="UPI reference, receipt details, etc."></textarea>
+ <div class="actions"><button type="submit" class="primary" style="margin:0">Save entry</button><button type="button" class="secondary" id="cancelBtn">Cancel</button></div>
+ <p class="small">Enter the actual amount paid. Keep original bills and payment proofs safely.</p>
+</form>
+<h2 class="section">Transactions</h2>
+<div class="toolbar">
+ <button class="secondary" id="exportBtn">Export backup</button>
+ <button class="secondary" id="importBtn">Restore backup</button>
+ <input id="fileInput" type="file" accept="application/json,.json" class="hidden">
+</div>
+<div id="transactions"></div>
+<footer>Data is saved on this device only. Export backups regularly.</footer>
+</main>
+<script>
+const KEY='electionAdvanceEntries_v1';
+const OPENING=300000;
+let entries=[];
+try{entries=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){entries=[]}
+const $=id=>document.getElementById(id);
+const money=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:2});
+const save=()=>localStorage.setItem(KEY,JSON.stringify(entries));
+const balanceAt=index=>OPENING+entries.slice(0,index+1).reduce((s,e)=>s+(e.type==='refund'?e.amount:-e.amount),0);
+function render(){
+ const spent=entries.filter(e=>e.type==='payment').reduce((s,e)=>s+e.amount,0);
+ const returned=entries.filter(e=>e.type==='refund').reduce((s,e)=>s+e.amount,0);
+ $('balance').textContent=money(OPENING-spent+returned);
+ $('openingView').textContent=money(OPENING);$('spent').textContent=money(spent);
+ const root=$('transactions');root.innerHTML='';
+ if(!entries.length){root.innerHTML='<div class="empty">No transactions yet.<br>Add your first payment above.</div>';return}
+ [...entries].reverse().forEach(e=>{
+  const realIndex=entries.findIndex(x=>x.id===e.id);
+  const div=document.createElement('div');div.className='card';
+  const sign=e.type==='refund'?'+':'−';
+  div.innerHTML=`<div class="tx-top"><div><div class="tx-title"></div><div class="tx-sub"></div></div><div class="tx-amount">${sign}${money(e.amount)}</div></div><div class="tag"></div><hr><div class="small">Balance after entry: <b>${money(balanceAt(realIndex))}</b></div><div class="actions"><button class="secondary edit">Edit</button><button class="danger delete">Delete</button></div>`;
+  div.querySelector('.tx-title').textContent=e.person;
+  div.querySelector('.tx-sub').textContent=new Date(e.date+'T00:00:00').toLocaleDateString('en-IN')+' · '+(e.mode||'');
+  div.querySelector('.tag').textContent=e.type==='refund'?'Money returned':`Bill: ${e.bill||'Not specified'}${e.billNo?' · '+e.billNo:''}`;
+  div.querySelector('.edit').onclick=()=>editEntry(e);
+  div.querySelector('.delete').onclick=()=>{if(confirm('Delete this entry? The balance will be recalculated.')){entries=entries.filter(x=>x.id!==e.id);save();render()}};
+  if(e.remarks){const p=document.createElement('p');p.className='small';p.textContent=e.remarks;div.insertBefore(p,div.querySelector('hr'))}
+  root.appendChild(div);
+ });
+}
+function openForm(){ $('entryForm').classList.remove('hidden'); $('date').value=new Date().toISOString().slice(0,10); $('person').focus(); }
+function closeForm(){ $('entryForm').classList.add('hidden'); $('entryForm').reset(); $('editId').value=''; $('formTitle').textContent='New entry';$('date').value=new Date().toISOString().slice(0,10); }
+function editEntry(e){
+ openForm();$('formTitle').textContent='Edit entry';$('editId').value=e.id;$('date').value=e.date;$('person').value=e.person;$('type').value=e.type;$('mode').value=e.mode;$('amount').value=e.amount;$('bill').value=e.bill||'Received';$('billNo').value=e.billNo||'';$('remarks').value=e.remarks||'';toggleType();
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+function toggleType(){const refund=$('type').value==='refund';$('amountLabel').textContent=refund?'Amount returned (₹) *':'Amount paid (₹) *';$('billFields').classList.toggle('hidden',refund)}
+$('type').onchange=toggleType;
+$('addBtn').onclick=()=>{closeForm();openForm();};
+$('cancelBtn').onclick=closeForm;
+$('entryForm').onsubmit=e=>{
+ e.preventDefault();
+ const amount=Number($('amount').value);
+ if(!Number.isFinite(amount)||amount<=0){alert('Enter a valid amount.');return}
+ const id=$('editId').value;
+ const item={id:id||String(Date.now()),date:$('date').value,person:$('person').value.trim(),type:$('type').value,mode:$('mode').value,amount,bill:$('type').value==='refund'?'Not Applicable':$('bill').value,billNo:$('billNo').value.trim(),remarks:$('remarks').value.trim()};
+ if(id){entries=entries.map(x=>x.id===id?item:x)}else{entries.push(item)}
+ entries.sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));
+ save();closeForm();render();
+};
+$('exportBtn').onclick=()=>{
+ const blob=new Blob([JSON.stringify({openingAdvance:OPENING,entries},null,2)],{type:'application/json'});
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='election-advance-backup.json';a.click();URL.revokeObjectURL(a.href);
+};
+$('importBtn').onclick=()=>$('fileInput').click();
+$('fileInput').onchange=async e=>{
+ const f=e.target.files[0];if(!f)return;
+ try{const data=JSON.parse(await f.text());if(!Array.isArray(data.entries))throw Error();if(confirm('Replace the entries on this device with this backup?')){entries=data.entries;save();render();alert('Backup restored.')}}catch(err){alert('Invalid backup file.')}e.target.value='';
+};
+render();
+</script>
+<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});}</script></body></html>
