@@ -39,7 +39,6 @@ textarea{min-height:65px;resize:vertical}
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .toolbar button{font-size:13px;padding:10px}
 footer{text-align:center;font-size:11px;color:#7a8993;padding:20px}
-.file-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}.file-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#f1f5f8;padding:8px 10px;border-radius:8px;font-size:12px}.file-row a{color:#174a73;font-weight:700;text-decoration:none}.file-row button{padding:6px 9px;font-size:12px}
 hr{border:0;border-top:1px solid #e6ebef;margin:12px 0}
 </style>
 </head>
@@ -71,10 +70,6 @@ hr{border:0;border-top:1px solid #e6ebef;margin:12px 0}
    <div><label>Bill number</label><input id="billNo" placeholder="If available"></div>
   </div>
  </div>
- <label>Upload bills / receipts (one or more files)</label>
- <input id="attachments" type="file" accept="image/*,application/pdf" multiple>
- <div class="small">You can select multiple photos or PDF files. Files stay on this device with the transaction.</div>
- <div id="attachmentList" class="file-list"></div>
  <label>Transaction ID / proof / remarks</label><textarea id="remarks" placeholder="UPI reference, receipt details, etc."></textarea>
  <div class="actions"><button type="submit" class="primary" style="margin:0">Save entry</button><button type="button" class="secondary" id="cancelBtn">Cancel</button></div>
  <p class="small">Enter the actual amount paid. Keep original bills and payment proofs safely.</p>
@@ -92,16 +87,10 @@ hr{border:0;border-top:1px solid #e6ebef;margin:12px 0}
 const KEY='electionAdvanceEntries_v1';
 const OPENING=300000;
 let entries=[];
-let removedAttachmentIds=[];
 try{entries=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){entries=[]}
 const $=id=>document.getElementById(id);
 const money=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:2});
 const save=()=>localStorage.setItem(KEY,JSON.stringify(entries));
-const DB_NAME='ElectionAdvanceFiles', STORE='attachments';
-function openFileDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DB_NAME,1);req.onupgradeneeded=()=>req.result.createObjectStore(STORE,{keyPath:'id'});req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
-async function fileDB(action,value){const db=await openFileDB();return new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readwrite');const store=tx.objectStore(STORE);let req;if(action==='put')req=store.put(value);else if(action==='get')req=store.get(value);else if(action==='delete')req=store.delete(value);else req=store.getAll();tx.oncomplete=()=>resolve(req?.result);tx.onerror=()=>reject(tx.error)})}
-function formatSize(n){return n<1024*1024?Math.ceil(n/1024)+' KB':(n/1024/1024).toFixed(1)+' MB'}
-async function showAttachments(list, editable=false){const box=$('attachmentList');box.innerHTML='';for(const f of (list||[])){const row=document.createElement('div');row.className='file-row';const name=document.createElement('span');name.textContent=f.name+' ('+formatSize(f.size)+')';row.appendChild(name);if(editable){const b=document.createElement('button');b.type='button';b.className='danger';b.textContent='Remove';b.onclick=()=>{removedAttachmentIds.push(f.id);row.remove()};row.appendChild(b)}else{try{const record=await fileDB('get',f.id);if(record?.blob){const a=document.createElement('a');a.textContent='Open';a.href=URL.createObjectURL(record.blob);a.target='_blank';a.rel='noopener';row.appendChild(a)}}catch(err){}}box.appendChild(row)}}
 const balanceAt=index=>OPENING+entries.slice(0,index+1).reduce((s,e)=>s+(e.type==='refund'?e.amount:-e.amount),0);
 function render(){
  const spent=entries.filter(e=>e.type==='payment').reduce((s,e)=>s+e.amount,0);
@@ -119,47 +108,39 @@ function render(){
   div.querySelector('.tx-sub').textContent=new Date(e.date+'T00:00:00').toLocaleDateString('en-IN')+' · '+(e.mode||'');
   div.querySelector('.tag').textContent=e.type==='refund'?'Money returned':`Bill: ${e.bill||'Not specified'}${e.billNo?' · '+e.billNo:''}`;
   div.querySelector('.edit').onclick=()=>editEntry(e);
-  div.querySelector('.delete').onclick=()=>{if(confirm('Delete this entry? The balance will be recalculated.')){entries=entries.filter(x=>x.id!==e.id);for(const f of (e.attachments||[])){fileDB('delete',f.id)}save();render()}};
+  div.querySelector('.delete').onclick=()=>{if(confirm('Delete this entry? The balance will be recalculated.')){entries=entries.filter(x=>x.id!==e.id);save();render()}};
   if(e.remarks){const p=document.createElement('p');p.className='small';p.textContent=e.remarks;div.insertBefore(p,div.querySelector('hr'))}
-  if(e.attachments?.length){const files=document.createElement('div');files.className='file-list';files.textContent='Loading attached files…';div.appendChild(files);showCardAttachments(e,files)}
   root.appendChild(div);
  });
 }
-async function showCardAttachments(e,box){box.innerHTML='';for(const f of e.attachments||[]){const row=document.createElement('div');row.className='file-row';const n=document.createElement('span');n.textContent='📎 '+f.name;row.appendChild(n);try{const record=await fileDB('get',f.id);if(record?.blob){const a=document.createElement('a');a.textContent='View';a.href=URL.createObjectURL(record.blob);a.target='_blank';a.rel='noopener';row.appendChild(a)}}catch(err){}box.appendChild(row)}}
 function openForm(){ $('entryForm').classList.remove('hidden'); $('date').value=new Date().toISOString().slice(0,10); $('person').focus(); }
-function closeForm(){ $('entryForm').classList.add('hidden'); $('entryForm').reset(); $('editId').value=''; $('formTitle').textContent='New entry';$('date').value=new Date().toISOString().slice(0,10);$('attachmentList').innerHTML='';removedAttachmentIds=[]; }
+function closeForm(){ $('entryForm').classList.add('hidden'); $('entryForm').reset(); $('editId').value=''; $('formTitle').textContent='New entry';$('date').value=new Date().toISOString().slice(0,10); }
 function editEntry(e){
- openForm();$('formTitle').textContent='Edit entry';$('editId').value=e.id;$('date').value=e.date;$('person').value=e.person;$('type').value=e.type;$('mode').value=e.mode;$('amount').value=e.amount;$('bill').value=e.bill||'Received';$('billNo').value=e.billNo||'';$('remarks').value=e.remarks||'';removedAttachmentIds=[];showAttachments(e.attachments||[],true);toggleType();
+ openForm();$('formTitle').textContent='Edit entry';$('editId').value=e.id;$('date').value=e.date;$('person').value=e.person;$('type').value=e.type;$('mode').value=e.mode;$('amount').value=e.amount;$('bill').value=e.bill||'Received';$('billNo').value=e.billNo||'';$('remarks').value=e.remarks||'';toggleType();
  window.scrollTo({top:0,behavior:'smooth'});
 }
 function toggleType(){const refund=$('type').value==='refund';$('amountLabel').textContent=refund?'Amount returned (₹) *':'Amount paid (₹) *';$('billFields').classList.toggle('hidden',refund)}
 $('type').onchange=toggleType;
 $('addBtn').onclick=()=>{closeForm();openForm();};
 $('cancelBtn').onclick=closeForm;
-$('entryForm').onsubmit=async e=>{
+$('entryForm').onsubmit=e=>{
  e.preventDefault();
  const amount=Number($('amount').value);
  if(!Number.isFinite(amount)||amount<=0){alert('Enter a valid amount.');return}
  const id=$('editId').value;
- const old=id?entries.find(x=>x.id===id):null;
- let attachments=(old?.attachments||[]).filter(f=>!removedAttachmentIds.includes(f.id));
- for(const aid of removedAttachmentIds){await fileDB('delete',aid)}
- for(const file of $('attachments').files){const fid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random());await fileDB('put',{id:fid,blob:file});attachments.push({id:fid,name:file.name,type:file.type,size:file.size})}
- const item={id:id||String(Date.now()),date:$('date').value,person:$('person').value.trim(),type:$('type').value,mode:$('mode').value,amount,bill:$('type').value==='refund'?'Not Applicable':$('bill').value,billNo:$('billNo').value.trim(),remarks:$('remarks').value.trim(),attachments};
+ const item={id:id||String(Date.now()),date:$('date').value,person:$('person').value.trim(),type:$('type').value,mode:$('mode').value,amount,bill:$('type').value==='refund'?'Not Applicable':$('bill').value,billNo:$('billNo').value.trim(),remarks:$('remarks').value.trim()};
  if(id){entries=entries.map(x=>x.id===id?item:x)}else{entries.push(item)}
  entries.sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));
  save();closeForm();render();
 };
-$('exportBtn').onclick=async()=>{
- const backup=JSON.parse(JSON.stringify(entries));
- for(const entry of backup){for(const f of (entry.attachments||[])){const record=await fileDB('get',f.id);if(record?.blob){f.data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(record.blob)})}}}
- const blob=new Blob([JSON.stringify({openingAdvance:OPENING,entries:backup},null,2)],{type:'application/json'});
- const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download='election-advance-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+$('exportBtn').onclick=()=>{
+ const blob=new Blob([JSON.stringify({openingAdvance:OPENING,entries},null,2)],{type:'application/json'});
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='election-advance-backup.json';a.click();URL.revokeObjectURL(a.href);
 };
 $('importBtn').onclick=()=>$('fileInput').click();
 $('fileInput').onchange=async e=>{
  const f=e.target.files[0];if(!f)return;
- try{const data=JSON.parse(await f.text());if(!Array.isArray(data.entries))throw Error();if(confirm('Replace the entries on this device with this backup?')){entries=data.entries;for(const entry of entries){for(const att of (entry.attachments||[])){if(att.data){const res=await fetch(att.data);const blob=await res.blob();await fileDB('put',{id:att.id,blob});delete att.data}}}save();render();alert('Backup and bill files restored.')}}catch(err){alert('Invalid backup file or attachment could not be restored.')}e.target.value='';
+ try{const data=JSON.parse(await f.text());if(!Array.isArray(data.entries))throw Error();if(confirm('Replace the entries on this device with this backup?')){entries=data.entries;save();render();alert('Backup restored.')}}catch(err){alert('Invalid backup file.')}e.target.value='';
 };
 render();
 </script>
